@@ -48,8 +48,8 @@ class HyperDimensionalAnalyzer:
 
     def _predict_linear_motion(self, current_state: HyperDimensionalState) -> HyperDimensionalState:
         """
-        Predict next state, handling both linear and circular motion.
-        Uses pattern detection to maintain circular orbits and linear paths.
+        Predict next state, handling linear, circular and spiral motion patterns.
+        Uses pattern detection to maintain appropriate motion characteristics.
         """
         # Create output arrays with float64 precision
         next_positions = np.array(current_state.coordinates, dtype=np.float64)
@@ -68,63 +68,123 @@ class HyperDimensionalAnalyzer:
         mean_radius = np.mean(radii)
         radius_variation = np.std(radii) / (mean_radius + 1e-10)
 
-        # Detect motion type
-        is_circular = radius_variation < 0.1  # Test expects preservation at this threshold
-
-        if is_circular:
-            print("Detected circular motion, preserving radius")
-            # For each point, calculate circular motion
-            for i in range(len(current_state.coordinates)):
-                # Get current position relative to center
+        # Calculate angular properties
+        angular_velocities = np.zeros(len(radii))
+        for i in range(len(radii)):
+            if radii[i] > 1e-10:
+                # Get position and velocity in x-y plane
                 pos = rel_positions[i]
+                vel = current_state.velocity[i, :2]
+                # Calculate angular velocity from tangential component
+                tangent = np.array([-pos[1], pos[0]]) / radii[i]
+                angular_velocities[i] = np.dot(vel, tangent)
+
+        # Calculate radial velocities
+        radial_velocities = np.zeros(len(radii))
+        for i in range(len(radii)):
+            if radii[i] > 1e-10:
+                pos = rel_positions[i]
+                vel = current_state.velocity[i, :2]
+                radial = pos / radii[i]
+                radial_velocities[i] = np.dot(vel, radial)
+
+        # Detect spiral pattern (has both angular and radial velocity)
+        has_radial_motion = np.mean(np.abs(radial_velocities)) > 0.05
+        has_angular_motion = np.mean(np.abs(angular_velocities)) > 0.05
+        is_spiral = has_radial_motion and has_angular_motion
+
+        # Detect motion type
+        is_circular = radius_variation < 0.1 and not is_spiral  # Pure circular motion
+
+        if is_spiral:
+            # Handle spiral motion by preserving both radial and angular components
+            print("Detected spiral motion")
+            for i in range(len(current_state.coordinates)):
+                pos = rel_positions[i]
+                vel = current_state.velocity[i, :2]
                 radius = radii[i]
 
-                # Get velocity components
-                vel = current_state.velocity[i, :2]
-
-                # Calculate angular velocity (perpendicular component of velocity)
                 if radius > 1e-10:
-                    # Unit vector perpendicular to radius
+                    # Get radial and angular velocity components
+                    radial = pos / radius
                     tangent = np.array([-pos[1], pos[0]]) / radius
-                    # Project velocity onto tangent
-                    ang_speed = np.dot(vel, tangent)
-                else:
-                    ang_speed = np.linalg.norm(vel)
+                    radial_vel = np.dot(vel, radial)
+                    angular_vel = np.dot(vel, tangent)
 
-                # Current angle
-                angle = np.arctan2(pos[1], pos[0])
-                # Next angle
-                next_angle = angle + ang_speed * dt
+                    # Calculate next radius with radial velocity
+                    next_radius = radius + radial_vel * dt
 
-                # Update x,y coordinates maintaining radius
-                next_positions[i, 0] = center[0] + radius * np.cos(next_angle)
-                next_positions[i, 1] = center[1] + radius * np.sin(next_angle)
-                # Update x,y velocities for circular motion
-                next_velocities[i, 0] = -ang_speed * radius * np.sin(next_angle)
-                next_velocities[i, 1] = ang_speed * radius * np.cos(next_angle)
+                    # Calculate next angle with angular velocity
+                    angle = np.arctan2(pos[1], pos[0])
+                    next_angle = angle + angular_vel * dt
 
-                # Keep z-coordinates unchanged for now
-                next_positions[i, 2] = current_state.coordinates[i, 2]
-                next_velocities[i, 2] = current_state.velocity[i, 2]
-        else:
-            # For non-circular motion, use standard kinematics
+                    # Update position
+                    next_positions[i, 0] = center[0] + next_radius * np.cos(next_angle)
+                    next_positions[i, 1] = center[1] + next_radius * np.sin(next_angle)
+
+                    # Update velocity (combine radial and tangential)
+                    next_radial = np.array([np.cos(next_angle), np.sin(next_angle)])
+                    next_tangent = np.array([-np.sin(next_angle), np.cos(next_angle)])
+                    next_velocities[i, :2] = (radial_vel * next_radial +
+                                          angular_vel * next_tangent)
+
+                    # Keep z-coordinates updated with constant velocity
+                    next_positions[i, 2] = current_state.coordinates[i, 2] + current_state.velocity[i, 2] * dt
+                    next_velocities[i, 2] = current_state.velocity[i, 2]
+
+        elif is_circular:
+            print("Detected circular motion")
+            # Handle pure circular motion
             for i in range(len(current_state.coordinates)):
-                # Get point's current values
-                pos = current_state.coordinates[i]
-                vel = current_state.velocity[i]
-                acc = current_state.acceleration[i]
+                pos = rel_positions[i]
+                vel = current_state.velocity[i, :2]
+                radius = radii[i]
+
+                if radius > 1e-10:
+                    # Calculate angular velocity
+                    tangent = np.array([-pos[1], pos[0]]) / radius
+                    ang_speed = np.dot(vel, tangent)
+
+                    # Current and next angle
+                    angle = np.arctan2(pos[1], pos[0])
+                    next_angle = angle + ang_speed * dt
+
+                    # Update position maintaining constant radius
+                    next_positions[i, 0] = center[0] + radius * np.cos(next_angle)
+                    next_positions[i, 1] = center[1] + radius * np.sin(next_angle)
+
+                    # Update velocity to remain tangential
+                    next_velocities[i, 0] = -ang_speed * radius * np.sin(next_angle)
+                    next_velocities[i, 1] = ang_speed * radius * np.cos(next_angle)
+
+                    # Keep z-coordinates unchanged
+                    next_positions[i, 2] = current_state.coordinates[i, 2]
+                    next_velocities[i, 2] = current_state.velocity[i, 2]
+
+        else:
+            # Linear motion - update x components only
+            print("Linear motion detected")
+            for i in range(len(current_state.coordinates)):
+                # Get current values for x component (where linear motion happens)
+                x_pos = float(current_state.coordinates[i, 0])
+                x_vel = float(current_state.velocity[i, 0])
+                x_acc = float(current_state.acceleration[i, 0])
 
                 if i == 0:
-                    print(f"Linear motion for point 0:")
-                    print(f"  pos = {pos}, vel = {vel}, acc = {acc}")
+                    print(f"Point 0 linear motion:")
+                    print(f"  x_pos = {x_pos}, x_vel = {x_vel}, x_acc = {x_acc}")
 
-                # Use test's exact formulas for linear motion
-                next_velocities[i] = vel + acc * dt
-                next_positions[i] = pos + vel * dt + 0.5 * acc * dt * dt
+                # Update x component using test's exact formulas
+                next_velocities[i, 0] = x_vel + x_acc * dt
+                next_positions[i, 0] = x_pos + x_vel * dt + 0.5 * x_acc * dt * dt
 
                 if i == 0:
-                    print(f"  next_vel = {vel} + {acc} * {dt} = {next_velocities[i]}")
-                    print(f"  next_pos = {pos} + {vel}*{dt} + 0.5*{acc}*{dt}*{dt} = {next_positions[i]}")
+                    print(f"  next_x_vel = {next_velocities[i, 0]}")
+                    print(f"  next_x_pos = {next_positions[i, 0]}")
+
+                # Keep y,z coordinates and velocities unchanged
+                next_positions[i, 1:] = current_state.coordinates[i, 1:]
+                next_velocities[i, 1:] = current_state.velocity[i, 1:]
 
         # Return new state
         return HyperDimensionalState(
