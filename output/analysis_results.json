@@ -1,0 +1,37 @@
+{
+  "correlation_matrix": {
+    "coherence": {
+      "coherence": 1.0,
+      "entanglement": 0.9741361574044353,
+      "field_strength": 0.851653220358479
+    },
+    "entanglement": {
+      "coherence": 0.9741361574044353,
+      "entanglement": 1.0,
+      "field_strength": 0.9397964406228777
+    },
+    "field_strength": {
+      "coherence": 0.851653220358479,
+      "entanglement": 0.9397964406228777,
+      "field_strength": 1.0
+    }
+  },
+  "stability_metrics": {
+    "mean": {
+      "coherence": 0.9860550165176392,
+      "entanglement": 0.9869058728218079,
+      "field_strength": 0.9853693842887878
+    },
+    "std": {
+      "coherence": 0.0004621379775926471,
+      "entanglement": 0.00031583543750457466,
+      "field_strength": 0.0002935724041890353
+    },
+    "cv": {
+      "coherence": 0.00046867362107150257,
+      "entanglement": 0.00032002589432522655,
+      "field_strength": 0.00029793131398037076
+    }
+  },
+  "emergent_metrics": {
+    "average_speed": 
