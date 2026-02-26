@@ -29,6 +29,7 @@ class DeviceStatus(NamedTuple):
     error_count: int
     last_error: Optional[str]
 
+@dataclass
 class NeuralDataPacket:
     """Container for real-time neural data."""
     timestamp: float
@@ -85,6 +86,29 @@ class NeuralDataInterface:
         self._error_count = 0
         self._last_error = None
 
+    def _detect_com_port(self) -> Optional[str]:
+        """Detect OpenBCI board COM port.
+
+        Returns:
+            COM port string if found, None otherwise
+        """
+        import serial.tools.list_ports
+
+        # Look for known OpenBCI vendor IDs
+        OPENBCI_VENDOR_IDS = ['2341', '16C0', '0483']  # Arduino, OpenBCI, STM32
+
+        ports = serial.tools.list_ports.comports()
+        for port in ports:
+            if (port.vid is not None and
+                hex(port.vid)[2:].upper() in OPENBCI_VENDOR_IDS):
+                return port.device
+
+            # Also check description for OpenBCI keywords
+            if port.description and 'BCI' in port.description.upper():
+                return port.device
+
+        return None
+
     def _setup_device(self, max_retries: int = 3, retry_delay: float = 1.0):
         """Set up neural recording device with retry logic.
 
@@ -98,8 +122,21 @@ class NeuralDataInterface:
         """
         if self.device_type == 'openbci':
             # OpenBCI configuration
+            # Configure synthetic board for simulation
             self.params = BrainFlowInputParams()
-            self.board_id = BoardIds.SYNTHETIC_BOARD  # Replace with actual board ID
+
+            # Use synthetic board with 16 channels
+            self.board_id = BoardIds.SYNTHETIC_BOARD
+            self.eeg_channels = list(range(16))  # Use 16 EEG channels
+
+            # Configure synthetic board parameters
+            self.params.timeout = 15  # Timeout in seconds
+            self.params.serial_number = ''  # Not needed for synthetic board
+
+            print("Using synthetic board for simulation")
+            print(f"- Sampling rate: {self.sampling_rate} Hz")
+            print(f"- Buffer size: {self.buffer_size} samples")
+            print(f"- Simulated channels: {len(self.eeg_channels)} EEG channels")
 
             last_error = None
             for attempt in range(max_retries):
@@ -217,61 +254,54 @@ class NeuralDataInterface:
     def _acquisition_loop(self):
         """Main data acquisition loop."""
         while not self._stop_event.is_set():
+            # Check if we should still be running
+            with self._running_lock:
+                if not self._running:
+                    break
+
+            # Get new data
             try:
-                # Check if we should still be running
-                with self._running_lock:
-                    if not self._running:
-                        break
-
-                # Get new data
                 if self.board.get_board_data_count() > 0:
+                    # Get and process board data
+                    data = self.board.get_current_board_data(self.buffer_size)
+                    filtered_data = self._preprocess_data(data)
+
+                    # Create data packet
+                    packet = NeuralDataPacket(
+                        timestamp=time.time(),
+                        eeg_data=filtered_data,
+                        channel_names=self.board.get_eeg_names(self.board_id),
+                        sampling_rate=self.board.get_sampling_rate(self.board_id),
+                        channel_types=['eeg'] * filtered_data.shape[0]
+                    )
+
+                    # Try to add to queue with backpressure
                     try:
-                        data = self.board.get_current_board_data(self.buffer_size)
-                    except Exception as e:
-                        print(f"Error getting board data: {e}")
-                        if not self._stop_event.wait(timeout=0.1):  # 100ms retry delay
-                            continue
-                        break
+                        # Record packet timestamp before queuing
+                        self._packet_timestamps.append(time.time())
+                        self.data_queue.put(packet, timeout=0.1)  # 100ms timeout
+                    except queue.Full:
+                        # Queue is full - implement backpressure
+                        self._dropped_packets += 1
+                        print(f"Warning: Data queue full - implementing backpressure (dropped {self._dropped_packets} packets)")
+                        self._packet_timestamps.pop()  # Remove timestamp for dropped packet
+                        time.sleep(0.01)  # 10ms sleep when backed up
+                        continue
 
-                    try:
-                        # Preprocess data
-                        filtered_data = self._preprocess_data(data)
+                    # Dynamic sleep based on queue utilization
+                    utilization = self.data_queue.qsize() / self.data_queue.maxsize
+                    if utilization > 0.8:  # Over 80% full
+                        time.sleep(0.005)  # 5ms sleep
+                    elif utilization > 0.5:  # Over 50% full
+                        time.sleep(0.002)  # 2ms sleep
+                    else:
+                        time.sleep(0.001)  # Default 1ms sleep
 
-                        # Create data packet
-                        packet = NeuralDataPacket(
-                            timestamp=time.time(),
-                            eeg_data=filtered_data,
-                            channel_names=self.board.get_eeg_names(self.board_id),
-                            sampling_rate=self.board.get_sampling_rate(self.board_id),
-                            channel_types=['eeg'] * filtered_data.shape[0]
-                        )
-                    except Exception as e:
-                        print(f"Error processing data: {e}")
-                        if not self._stop_event.wait(timeout=0.1):
-                            continue
-                        break
-
-                # Add to queue with backpressure
-                try:
-                    # Record packet timestamp before queuing
-                    self._packet_timestamps.append(time.time())
-                    self.data_queue.put(packet, timeout=0.1)  # 100ms timeout
-                except queue.Full:
-                    # Queue is full - implement backpressure
-                    self._dropped_packets += 1
-                    print(f"Warning: Data queue full - implementing backpressure (dropped {self._dropped_packets} packets)")
-                    self._packet_timestamps.pop()  # Remove timestamp for dropped packet
-                    time.sleep(0.01)  # 10ms sleep when backed up
+            except Exception as e:
+                print(f"Error in acquisition loop: {e}")
+                if not self._stop_event.wait(timeout=0.1):  # 100ms retry delay
                     continue
-
-                # Dynamic sleep based on queue utilization
-                utilization = self.data_queue.qsize() / self.data_queue.maxsize
-                if utilization > 0.8:  # Over 80% full
-                    time.sleep(0.005)  # 5ms sleep
-                elif utilization > 0.5:  # Over 50% full
-                    time.sleep(0.002)  # 2ms sleep
-                else:
-                    time.sleep(0.001)  # Default 1ms sleep
+                break
 
     def _preprocess_data(self, data: np.ndarray) -> np.ndarray:
         """Preprocess neural data with validation and filtering.
@@ -298,15 +328,19 @@ class NeuralDataInterface:
             raise ValueError("Input data contains NaN or infinite values")
 
         try:
-            # Convert to float32
-            data = data.astype(np.float32)
+            # Convert to float64 for BrainFlow compatibility
+            data = data.astype(np.float64)
+
+            # Get EEG data only
+            eeg_data = data[self.eeg_channels]
 
             # Validate data shape
-            expected_channels = self.board.get_eeg_channels(self.board_id)
-            if data.shape[0] != len(expected_channels):
+            if eeg_data.shape[0] != len(self.eeg_channels):
                 raise ValueError(
-                    f"Invalid channel count. Expected {len(expected_channels)}, got {data.shape[0]}"
+                    f"Invalid channel count. Expected {len(self.eeg_channels)}, got {eeg_data.shape[0]}"
                 )
+
+            data = eeg_data  # Use only EEG channels
 
             # Optimize memory allocation and computation
             # Calculate signal quality using vectorized operations
@@ -325,34 +359,45 @@ class NeuralDataInterface:
             filtered_data = np.empty_like(data)
             np.copyto(filtered_data, data)
 
-            # Apply filters in-place with error handling
+            # Apply filters independently for each channel
             try:
-                # Batch process channels for better cache utilization
-                chunk_size = min(4, data.shape[0])  # Process up to 4 channels at once
-                for i in range(0, data.shape[0], chunk_size):
-                    chunk = slice(i, min(i + chunk_size, data.shape[0]))
+                # Process each channel independently
+                for i in range(data.shape[0]):
+                    # Get data for this channel (make a copy to avoid modifying original)
+                    channel_data = filtered_data[i].copy()
 
-                    # Bandpass filter
-                    DataFilter.perform_bandpass(
-                        filtered_data[chunk],
-                        self.sampling_rate,
-                        self.bandpass_filter[0],
-                        self.bandpass_filter[1],
-                        4,
-                        FilterTypes.BUTTERWORTH.value,
-                        0
-                    )
+                    # Ensure float64 type for BrainFlow
+                    channel_data = channel_data.astype(np.float64)
 
-                    # Notch filter
-                    DataFilter.perform_bandstop(
-                        filtered_data[chunk],
-                        self.sampling_rate,
-                        self.notch_filter,
-                        4,
-                        4,
-                        FilterTypes.BUTTERWORTH.value,
-                        0
-                    )
+                    try:
+                        # Apply bandpass filter
+                        DataFilter.perform_bandpass(
+                            channel_data,
+                            self.sampling_rate,
+                            self.bandpass_filter[0],  # Low cutoff
+                            self.bandpass_filter[1],  # High cutoff
+                            2,  # Order
+                            FilterTypes.BUTTERWORTH.value,
+                            0
+                        )
+
+                        # Apply notch filter (centered at 60 Hz with 4 Hz bandwidth)
+                        DataFilter.perform_bandstop(
+                            channel_data,
+                            self.sampling_rate,
+                            self.notch_filter - 2,  # Low cutoff = center - bandwidth/2
+                            self.notch_filter + 2,  # High cutoff = center + bandwidth/2
+                            2,  # Order
+                            FilterTypes.BUTTERWORTH.value,
+                            0
+                        )
+
+                        # Update filtered data
+                        filtered_data[i] = channel_data
+
+                    except Exception as e:
+                        print(f"Warning: Failed to filter channel {i}: {e}")
+                        filtered_data[i] = channel_data  # Use unfiltered data
 
             except Exception as e:
                 raise RuntimeError(f"Filtering failed: {e}")
@@ -393,7 +438,6 @@ class NeuralDataInterface:
                     })
 
             data = filtered_data
-
             return data
 
         except Exception as e:
@@ -448,6 +492,41 @@ class NeuralDataInterface:
             # Calculate average wait time from timestamps
             total_wait = sum(now - ts for ts in self._packet_timestamps)
             return total_wait / len(self._packet_timestamps)
+
+    def check_impedance(self) -> Dict[str, float]:
+        """Check electrode impedance values.
+
+        Returns:
+            Dictionary mapping channel names to impedance values in kOhms
+        """
+        if not hasattr(self, 'board'):
+            return {}
+
+        try:
+            # Get channel names
+            channel_names = self.board.get_eeg_names(self.board_id)
+
+            # Start impedance checking
+            self.board.config_board("impedance start")
+            time.sleep(0.5)  # Wait for stable readings
+
+            # Get impedance values
+            impedances = {}
+            for i, name in enumerate(channel_names):
+                # Read raw impedance value
+                imp_val = self.board.get_current_board_data(1)[i][0]
+                # Convert to kOhms
+                imp_kohm = abs(imp_val) / 1000.0
+                impedances[name] = imp_kohm
+
+            # Stop impedance checking
+            self.board.config_board("impedance stop")
+
+            return impedances
+
+        except Exception as e:
+            print(f"Error checking impedances: {e}")
+            return {}
 
     def check_device_health(self, timeout: float = 1.0) -> DeviceStatus:
         """Check health of device connection.
@@ -538,8 +617,7 @@ class NeuralDataInterface:
 
         # Calculate metrics under a single lock
         with self._metrics_lock:
-
-        return QueueMetrics(
+            return QueueMetrics(
             size=current_size,
             utilization=utilization,
             dropped_packets=self._dropped_packets,
