@@ -88,7 +88,24 @@ class MonitoringDashboard:
             current_pattern = None
             current_quantum_metrics = None
             if self.pattern_history:
-                current_pattern = np.vstack(self.pattern_history[-1])
+                # Safely handle patterns of different dimensions
+                patterns = self.pattern_history[-1]
+                if patterns:
+                    # Normalize pattern dimensions
+                    max_dim = max(p.shape[1] for p in patterns)
+                    normalized_patterns = []
+                    for p in patterns:
+                        if p.shape[1] < max_dim:
+                            # Pad smaller patterns
+                            pad_width = ((0, 0), (0, max_dim - p.shape[1]))
+                            normalized_p = np.pad(p, pad_width, mode='constant')
+                        else:
+                            normalized_p = p
+                        normalized_patterns.append(normalized_p)
+                    current_pattern = np.vstack(normalized_patterns)
+                else:
+                    current_pattern = None
+
                 if self.current_network_state.activation_patterns:
                     first_pattern = next(iter(self.current_network_state.activation_patterns.values()))
                     if first_pattern.quantum_metrics:

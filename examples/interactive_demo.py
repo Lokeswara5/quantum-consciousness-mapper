@@ -14,28 +14,28 @@ class InteractiveTestNetwork(nn.Module):
         super().__init__()
         # Create multiple pathways for interesting patterns
         self.encoder = nn.Sequential(
-            nn.Linear(10, 30),
+            nn.Linear(10, 20),
             nn.ReLU(),
-            nn.Linear(30, 20),
+            nn.Linear(20, 20),
             nn.ReLU()
         )
 
         self.pathway1 = nn.Sequential(
-            nn.Linear(20, 15),
+            nn.Linear(20, 20),
             nn.ReLU(),
-            nn.Linear(15, 10)
+            nn.Linear(20, 10)
         )
 
         self.pathway2 = nn.Sequential(
-            nn.Linear(20, 12),
+            nn.Linear(20, 20),
             nn.Tanh(),
-            nn.Linear(12, 10)
+            nn.Linear(20, 10)
         )
 
         self.combiner = nn.Sequential(
-            nn.Linear(20, 15),
+            nn.Linear(20, 20),
             nn.ReLU(),
-            nn.Linear(15, 5)
+            nn.Linear(20, 5)
         )
 
     def forward(self, x):
