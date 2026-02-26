@@ -1,6 +1,5 @@
-"""
-Same content as before, but replacing the input section at the bottom with:
-"""
+import time
+from run_test import IntegratedTester
 
 if __name__ == "__main__":
     print("Quantum Consciousness Mapper - Comprehensive Test")
