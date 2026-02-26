@@ -6,6 +6,7 @@ Welcome to Quantum Consciousness Mapper's documentation!
    :caption: Contents:
 
    readme
+   applications
    modules/core
    modules/analysis
    modules/quantum_states
