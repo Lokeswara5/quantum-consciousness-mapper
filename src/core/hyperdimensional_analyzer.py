@@ -43,8 +43,11 @@ class HyperDimensionalAnalyzer:
         self.state_history: List[HyperDimensionalState] = []
         self.attractor_points: Set[Tuple[float, ...]] = set()
         self.manifold_structure: Optional[nx.Graph] = None
-        self.emergence_threshold = 0.0  # No threshold for emergence
-        self.stability_threshold = 0.0  # No threshold for stability
+        self.min_community_size = 4  # Increased for more robust communities
+        self.min_persistence = 0.15  # Increased for stronger persistence
+        self.stability_threshold = 0.6  # Lowered for more sensitive stability detection
+        self.complexity_threshold = 0.75  # Adjusted for better balance
+        self.interaction_threshold = 0.4  # New threshold for pattern interactions
 
     def _predict_linear_motion(self, current_state: HyperDimensionalState) -> HyperDimensionalState:
         """

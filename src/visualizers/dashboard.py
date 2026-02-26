@@ -1,6 +1,7 @@
+"""Real-time monitoring dashboard for quantum consciousness mapping."""
+
 import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output
+from dash import dcc, html, Input, Output
 import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime, timedelta
@@ -9,13 +10,28 @@ from .pattern_visualizer import PatternVisualizer
 from ..ai_monitor.neural_monitor import NetworkState
 from ..ai_monitor.safety_monitor import SafetyStatus
 
+
 class MonitoringDashboard:
-    """Real-time dashboard for AI system monitoring"""
+    """Real-time dashboard for AI system monitoring."""
 
     def __init__(self,
                  update_interval: int = 1000,  # milliseconds
                  max_history: int = 1000):
-        self.app = dash.Dash(__name__)
+        """Initialize the dashboard.
+
+        Args:
+            update_interval: Update interval in milliseconds
+            max_history: Maximum number of historical data points to keep
+        """
+        self.app = dash.Dash(
+            __name__,
+            external_stylesheets=[
+                'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'
+            ]
+        )
+        self.app.config.suppress_callback_exceptions = True
+        self.app.title = 'Quantum Consciousness Mapper'
+
         self.visualizer = PatternVisualizer()
         self.update_interval = update_interval
         self.max_history = max_history
@@ -36,77 +52,12 @@ class MonitoringDashboard:
         self._setup_callbacks()
 
     def _setup_layout(self):
-        """Setup dashboard layout"""
-        from .interactive_controls import InteractiveControls
-
-        self.app.layout = html.Div([
-            # Add CSS
-            html.Div(style={
-                'display': 'flex',
-                'height': '100vh'
-            }),
-
-            html.Div([
-                # Left sidebar with controls
-                InteractiveControls.create_control_panel(),
-
-                # Main content area
-                html.Div([
-            html.H1("AI System Monitoring Dashboard",
-                   style={'textAlign': 'center'}),
-
-            # Top row - Key metrics
-            html.Div([
-                html.Div([
-                    html.H3("Risk Level"),
-                    dcc.Graph(id='risk-gauge')
-                ], className='four columns'),
-
-                html.Div([
-                    html.H3("System Status"),
-                    html.Div(id='system-status')
-                ], className='four columns'),
-
-                html.Div([
-                    html.H3("Active Alerts"),
-                    html.Div(id='active-alerts')
-                ], className='four columns')
-            ], className='row'),
-
-            # Second row - Pattern visualization
-            html.Div([
-                html.H3("Neural Pattern Space"),
-                dcc.Graph(id='pattern-space')
-            ], className='row'),
-
-            # Third row - Metrics over time
-            html.Div([
-                html.H3("System Metrics"),
-                dcc.Graph(id='metrics-timeline')
-            ], className='row'),
-
-            # Fourth row - Layer stability
-            html.Div([
-                html.H3("Layer Stability"),
-                dcc.Graph(id='stability-heatmap')
-            ], className='row'),
-
-            # Update interval
-            dcc.Interval(
-                id='interval-component',
-                interval=self.update_interval,
-                n_intervals=0
-            )
-                ], className='main-content')
-            ], className='dashboard-container')
-        ])
+        """Setup dashboard layout."""
+        from .dashboard_layout import create_layout
+        self.app.layout = create_layout(self.app)
 
     def _setup_callbacks(self):
-        """Setup dashboard callbacks"""
-        from .interactive_controls import AnalysisCallbacks
-
-        # Register interactive analysis callbacks
-        AnalysisCallbacks.register_callbacks(self.app, self)
+        """Setup dashboard callbacks."""
         @self.app.callback(
             [Output('risk-gauge', 'figure'),
              Output('system-status', 'children'),
@@ -115,7 +66,6 @@ class MonitoringDashboard:
              Output('quantum-state-analysis', 'figure'),
              Output('metrics-timeline', 'figure'),
              Output('quantum-transitions', 'figure'),
-             Output('stability-heatmap', 'figure'),
              Output('quantum-stats', 'children')],
             [Input('interval-component', 'n_intervals')]
         )
@@ -169,13 +119,6 @@ class MonitoringDashboard:
                 title="Quantum State Transitions"
             ) if self.current_safety_status.quantum_transition_matrix is not None else go.Figure()
 
-            # Update stability heatmap
-            stability_matrix = self._calculate_stability_matrix()
-            stability_heatmap = self.visualizer.create_stability_heatmap(
-                stability_matrix,
-                list(self.current_network_state.activation_patterns.keys())
-            )
-
             # Create quantum stats display
             quantum_stats = None
             if self.current_safety_status.quantum_state_counts:
@@ -198,10 +141,10 @@ class MonitoringDashboard:
 
             return (risk_gauge, status_div, alerts_div,
                    pattern_space, quantum_analysis, metrics_timeline,
-                   quantum_transitions, stability_heatmap, quantum_stats)
+                   quantum_transitions, quantum_stats)
 
     def _generate_empty_plots(self):
-        """Generate empty placeholder plots"""
+        """Generate empty placeholder plots."""
         empty_fig = go.Figure()
         empty_fig.update_layout(
             xaxis=dict(visible=False),
@@ -218,11 +161,11 @@ class MonitoringDashboard:
         empty_div = html.Div("No data available")
 
         return (empty_fig, empty_div, empty_div,
-                empty_fig, empty_fig, empty_fig, empty_fig,
+                empty_fig, empty_fig, empty_fig,
                 empty_fig, empty_div)
 
     def _create_status_div(self) -> html.Div:
-        """Create system status display"""
+        """Create system status display."""
         return html.Div([
             html.P(f"Safety Score: {self.current_safety_status.safety_score:.2f}"),
             html.P(f"Global Stability: {self.current_network_state.global_stability:.2f}"),
@@ -230,7 +173,7 @@ class MonitoringDashboard:
         ])
 
     def _create_alerts_div(self) -> html.Div:
-        """Create alerts display"""
+        """Create alerts display."""
         alerts = self.current_safety_status.active_alerts
         if not alerts:
             return html.Div("No active alerts")
@@ -242,31 +185,10 @@ class MonitoringDashboard:
             ]) for alert in alerts
         ])
 
-    def _calculate_stability_matrix(self) -> np.ndarray:
-        """Calculate stability correlation matrix between layers"""
-        patterns = self.current_network_state.activation_patterns
-        n_layers = len(patterns)
-        stability_matrix = np.zeros((n_layers, n_layers))
-
-        layer_names = list(patterns.keys())
-        for i, name1 in enumerate(layer_names):
-            for j, name2 in enumerate(layer_names):
-                if i == j:
-                    stability_matrix[i, j] = patterns[name1].stability
-                else:
-                    # Calculate cross-layer stability correlation
-                    stability_matrix[i, j] = (
-                        patterns[name1].stability *
-                        patterns[name2].stability *
-                        np.random.uniform(0.5, 1.0)  # Simulate correlation
-                    )
-
-        return stability_matrix
-
     def update_data(self,
                    network_state: NetworkState,
                    safety_status: SafetyStatus):
-        """Update dashboard with new data"""
+        """Update dashboard with new data."""
         self.current_network_state = network_state
         self.current_safety_status = safety_status
 
@@ -301,5 +223,5 @@ class MonitoringDashboard:
             self.pattern_history.pop(0)
 
     def run_server(self, debug: bool = True, port: int = 8050):
-        """Run the dashboard server"""
-        self.app.run(debug=debug, port=port)
+        """Run the dashboard server."""
+        self.app.run(debug=debug, port=port, use_reloader=False)

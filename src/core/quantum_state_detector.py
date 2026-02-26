@@ -59,9 +59,9 @@ class QuantumStateDetector:
         norms_i[norms_i == 0] = 1
         norms_j[norms_j == 0] = 1
 
-        # Normalize chunks
-        norm_i /= norms_i[:, None]
-        norm_j /= norms_j[:, None]
+        # Normalize chunks (using out parameter to avoid uninitialized memory warning)
+        np.divide(norm_i, norms_i[:, None], out=norm_i)
+        np.divide(norm_j, norms_j[:, None], out=norm_j)
 
         # Calculate correlations
         return np.dot(norm_i, norm_j.T)

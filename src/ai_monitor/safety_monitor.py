@@ -45,39 +45,74 @@ class SafetyMonitor:
     def calculate_risk_level(self,
                            network_state: NetworkState) -> float:
         """Calculate current risk level based on network state"""
-        risk_factors = []
+        risk_components = {
+            'stability': 0.0,
+            'warnings': 0.0,
+            'complexity': 0.0,
+            'emergence': 0.0,
+            'quantum': 0.0
+        }
 
-        # Check stability
-        if network_state.global_stability < 0.5:
-            risk_factors.append(0.8)  # High risk for low stability
+        # Component weights
+        weights = {
+            'stability': 0.35,
+            'warnings': 0.15,
+            'complexity': 0.15,
+            'emergence': 0.15,
+            'quantum': 0.20
+        }
 
-        # Check warning signals
-        risk_factors.append(min(len(network_state.warning_signals) * 0.1, 1.0))
+        # Check stability (inverse relationship)
+        stability = network_state.global_stability
+        risk_components['stability'] = max(0, 0.8 - stability)
+
+        # Check warning signals (logarithmic scaling)
+        n_warnings = len(network_state.warning_signals)
+        if n_warnings > 0:
+            risk_components['warnings'] = min(0.8, np.log2(n_warnings + 1) * 0.2)
 
         # Check layer patterns
-        for pattern in network_state.activation_patterns.values():
-            if pattern.complexity > 0.9:  # Very high complexity
-                risk_factors.append(0.7)
-            if pattern.emergence_score > 0.8:  # Strong emergence
-                risk_factors.append(0.6)
+        pattern_risks = []
+        quantum_risks = []
 
-            # Check quantum metrics
+        for pattern in network_state.activation_patterns.values():
+            # Classical pattern risks
+            if pattern.complexity > 0.8:
+                pattern_risks.append((pattern.complexity - 0.8) * 2)
+            if pattern.emergence_score > 0.7:
+                pattern_risks.append((pattern.emergence_score - 0.7) * 2)
+
+            # Quantum pattern risks
             if pattern.quantum_metrics:
                 metrics = pattern.quantum_metrics
-                # High risk for unstable quantum states
-                if metrics.state_type in ["GHZ", "W"] and metrics.confidence < 0.5:
-                    risk_factors.append(0.8)
-                # Risk from low coherence
-                if metrics.coherence_score < 0.3:
-                    risk_factors.append(0.7)
-                # Risk from unstable entanglement
-                if metrics.entanglement_measures.get("entropy", 0) > 0.9:
-                    risk_factors.append(0.7)
+                quantum_risk = 0.0
 
-        # Combine risk factors
-        if risk_factors:
-            return min(np.mean(risk_factors) + 0.1 * len(risk_factors), 1.0)
-        return 0.0
+                # State confidence
+                if metrics.state_type in ["GHZ", "W"]:
+                    if metrics.confidence < 0.4:
+                        quantum_risk += (0.4 - metrics.confidence) * 2
+
+                # Coherence
+                if metrics.coherence_score < 0.3:
+                    quantum_risk += (0.3 - metrics.coherence_score) * 1.5
+
+                # Entanglement entropy
+                entropy = metrics.entanglement_measures.get("entropy", 0)
+                if entropy > 0.9:
+                    quantum_risk += (entropy - 0.9) * 2
+
+                quantum_risks.append(quantum_risk)
+
+            # Aggregate risks
+            risk_components['complexity'] = np.mean(pattern_risks) if pattern_risks else 0.0
+            risk_components['quantum'] = np.mean(quantum_risks) if quantum_risks else 0.0
+
+        # Calculate weighted risk score
+        total_risk = sum(score * weights[component]
+                        for component, score in risk_components.items())
+
+        # Apply soft cap at 1.0
+        return min(total_risk, 1.0)
 
     def analyze_pattern_signature(self,
                                 network_state: NetworkState) -> np.ndarray:
