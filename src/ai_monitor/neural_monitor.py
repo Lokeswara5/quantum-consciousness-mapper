@@ -51,10 +51,18 @@ class NeuralNetworkMonitor:
             # Normalize the state
             state = (state - np.mean(state)) / (np.std(state) + 1e-8)
 
-            # Reshape to 3D if needed
+            # Reshape to work with 3D visualization
             if state.ndim == 2:
-                state = np.expand_dims(state, axis=-1)
-
+                # Get the total size and ensure it's divisible by 3
+                total_size = state.size
+                if total_size % 3 != 0:
+                    # Pad with zeros to make it divisible by 3
+                    pad_size = 3 - (total_size % 3)
+                    state = np.pad(state.flatten(), (0, pad_size), mode='constant')
+                else:
+                    state = state.flatten()
+                # Reshape to (-1, 3) for 3D visualization
+                state = state.reshape(-1, 3)
             return state
         return None
 
