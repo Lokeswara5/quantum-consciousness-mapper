@@ -37,7 +37,59 @@ class MonitoringDashboard:
 
     def _setup_layout(self):
         """Setup dashboard layout"""
+        from .interactive_controls import InteractiveControls
+
         self.app.layout = html.Div([
+            # Add CSS
+            html.Style("""
+                .dashboard-container {
+                    display: flex;
+                    height: 100vh;
+                }
+                .control-panel {
+                    width: 300px;
+                    padding: 20px;
+                    background-color: #f5f5f5;
+                    overflow-y: auto;
+                }
+                .main-content {
+                    flex-grow: 1;
+                    padding: 20px;
+                    overflow-y: auto;
+                }
+                .control-section {
+                    margin-bottom: 20px;
+                    padding: 10px;
+                    border: 1px solid #ddd;
+                    border-radius: 5px;
+                }
+                .control-button {
+                    margin-top: 10px;
+                    padding: 5px 10px;
+                    background-color: #007bff;
+                    color: white;
+                    border: none;
+                    border-radius: 3px;
+                    cursor: pointer;
+                }
+                .control-button:hover {
+                    background-color: #0056b3;
+                }
+                .analysis-section {
+                    margin-bottom: 30px;
+                    padding: 15px;
+                    border: 1px solid #ddd;
+                    border-radius: 5px;
+                    background-color: white;
+                }
+            """),
+
+            html.Div([
+                # Left sidebar with controls
+                InteractiveControls.create_control_panel(),
+
+                # Main content area
+                html.Div([
             html.H1("AI System Monitoring Dashboard",
                    style={'textAlign': 'center'}),
 
@@ -83,10 +135,16 @@ class MonitoringDashboard:
                 interval=self.update_interval,
                 n_intervals=0
             )
+                ], className='main-content')
+            ], className='dashboard-container')
         ])
 
     def _setup_callbacks(self):
         """Setup dashboard callbacks"""
+        from .interactive_controls import AnalysisCallbacks
+
+        # Register interactive analysis callbacks
+        AnalysisCallbacks.register_callbacks(self.app, self)
         @self.app.callback(
             [Output('risk-gauge', 'figure'),
              Output('system-status', 'children'),
