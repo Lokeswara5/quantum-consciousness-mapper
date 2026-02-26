@@ -24,6 +24,8 @@ class SafetyStatus:
     stability_metrics: Dict[str, float]
     safety_score: float
     last_update: datetime
+    quantum_state_counts: Optional[Dict[str, Dict[str, float]]] = None
+    quantum_transition_matrix: Optional[np.ndarray] = None
 
 class SafetyMonitor:
     """AI safety monitoring and early warning system"""
@@ -59,6 +61,19 @@ class SafetyMonitor:
             if pattern.emergence_score > 0.8:  # Strong emergence
                 risk_factors.append(0.6)
 
+            # Check quantum metrics
+            if pattern.quantum_metrics:
+                metrics = pattern.quantum_metrics
+                # High risk for unstable quantum states
+                if metrics.state_type in ["GHZ", "W"] and metrics.confidence < 0.5:
+                    risk_factors.append(0.8)
+                # Risk from low coherence
+                if metrics.coherence_score < 0.3:
+                    risk_factors.append(0.7)
+                # Risk from unstable entanglement
+                if metrics.entanglement_measures.get("entropy", 0) > 0.9:
+                    risk_factors.append(0.7)
+
         # Combine risk factors
         if risk_factors:
             return min(np.mean(risk_factors) + 0.1 * len(risk_factors), 1.0)
@@ -70,11 +85,25 @@ class SafetyMonitor:
         signatures = []
         for pattern in network_state.activation_patterns.values():
             # Create pattern fingerprint
-            fingerprint = np.array([
+            # Create pattern fingerprint with quantum metrics
+            base_fingerprint = [
                 pattern.complexity,
                 pattern.stability,
                 pattern.emergence_score
-            ])
+            ]
+
+            if pattern.quantum_metrics:
+                metrics = pattern.quantum_metrics
+                quantum_fingerprint = [
+                    metrics.coherence_score,
+                    float(metrics.state_type == "GHZ"),
+                    float(metrics.state_type == "W"),
+                    metrics.confidence,
+                    metrics.entanglement_measures.get("entropy", 0)
+                ]
+                fingerprint = np.array(base_fingerprint + quantum_fingerprint)
+            else:
+                fingerprint = np.array(base_fingerprint + [0, 0, 0, 0, 0])
             signatures.append(fingerprint)
 
         return np.mean(signatures, axis=0) if signatures else np.zeros(3)
@@ -114,10 +143,37 @@ class SafetyMonitor:
                 self.neural_monitor.get_layer_recommendations(name, pattern)
             )
 
+        # Check for quantum-specific alerts
+        quantum_alerts = []
+        for name, pattern in network_state.activation_patterns.items():
+            if pattern.quantum_metrics:
+                metrics = pattern.quantum_metrics
+                if metrics.state_type in ["GHZ", "W"] and metrics.confidence < 0.5:
+                    quantum_alerts.append(
+                        f"Unstable {metrics.state_type} state detected in {name}"
+                    )
+                if metrics.coherence_score < 0.3:
+                    quantum_alerts.append(
+                        f"Critical quantum decoherence in {name}"
+                    )
+
+        # Add quantum-specific recommendations
+        if quantum_alerts:
+            recommendations.extend([
+                "Initiate quantum state stabilization protocol",
+                "Monitor entanglement measures closely",
+                "Consider reducing environmental noise"
+            ])
+
+        # Update description with quantum alerts
+        description = f"Risk level {risk_level:.2f} detected"
+        if quantum_alerts:
+            description += f" - {len(quantum_alerts)} quantum anomalies"
+
         # Create alert
         alert = SafetyAlert(
             severity=severity,
-            description=f"Risk level {risk_level:.2f} detected",
+            description=description,
             affected_components=affected,
             timestamp=datetime.now(),
             recommendations=recommendations,
@@ -155,12 +211,18 @@ class SafetyMonitor:
         ]
         safety_score = np.mean(safety_factors)
 
+        # Get quantum state statistics
+        quantum_state_counts = self.neural_monitor.get_quantum_state_statistics()
+        quantum_transition_matrix = self.neural_monitor.get_quantum_transition_matrix()
+
         return SafetyStatus(
             overall_risk_level=risk_level,
             active_alerts=active_alerts,
             stability_metrics=stability_metrics,
             safety_score=safety_score,
-            last_update=datetime.now()
+            last_update=datetime.now(),
+            quantum_state_counts=quantum_state_counts,
+            quantum_transition_matrix=quantum_transition_matrix
         )
 
     def get_safety_recommendations(self,
@@ -190,6 +252,34 @@ class SafetyMonitor:
             recommendations.append(
                 "Overall safety score below threshold. Review system parameters."
             )
+
+        # Add quantum-specific recommendations
+        if status.quantum_state_counts:
+            total_states = sum(
+                info["count"] for info in status.quantum_state_counts.values()
+            )
+            if total_states > 0:
+                # Check for unstable quantum states
+                ghz_info = status.quantum_state_counts.get("GHZ", {"percentage": 0})
+                w_info = status.quantum_state_counts.get("W", {"percentage": 0})
+
+                if ghz_info["percentage"] > 30:
+                    recommendations.append(
+                        "High GHZ state concentration detected. Monitor global correlations."
+                    )
+                if w_info["percentage"] > 30:
+                    recommendations.append(
+                        "High W state concentration detected. Monitor local entanglement."
+                    )
+
+        # Check quantum state transitions
+        if status.quantum_transition_matrix is not None:
+            transition_matrix = status.quantum_transition_matrix
+            # Check for rapid state switching
+            if np.any(transition_matrix > 0.5):
+                recommendations.append(
+                    "Frequent quantum state transitions detected. Consider stabilization."
+                )
 
         return recommendations
 

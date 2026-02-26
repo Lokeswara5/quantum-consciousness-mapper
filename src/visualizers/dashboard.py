@@ -41,48 +41,10 @@ class MonitoringDashboard:
 
         self.app.layout = html.Div([
             # Add CSS
-            html.Style("""
-                .dashboard-container {
-                    display: flex;
-                    height: 100vh;
-                }
-                .control-panel {
-                    width: 300px;
-                    padding: 20px;
-                    background-color: #f5f5f5;
-                    overflow-y: auto;
-                }
-                .main-content {
-                    flex-grow: 1;
-                    padding: 20px;
-                    overflow-y: auto;
-                }
-                .control-section {
-                    margin-bottom: 20px;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
-                }
-                .control-button {
-                    margin-top: 10px;
-                    padding: 5px 10px;
-                    background-color: #007bff;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    cursor: pointer;
-                }
-                .control-button:hover {
-                    background-color: #0056b3;
-                }
-                .analysis-section {
-                    margin-bottom: 30px;
-                    padding: 15px;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
-                    background-color: white;
-                }
-            """),
+            html.Div(style={
+                'display': 'flex',
+                'height': '100vh'
+            }),
 
             html.Div([
                 # Left sidebar with controls
@@ -150,8 +112,11 @@ class MonitoringDashboard:
              Output('system-status', 'children'),
              Output('active-alerts', 'children'),
              Output('pattern-space', 'figure'),
+             Output('quantum-state-analysis', 'figure'),
              Output('metrics-timeline', 'figure'),
-             Output('stability-heatmap', 'figure')],
+             Output('quantum-transitions', 'figure'),
+             Output('stability-heatmap', 'figure'),
+             Output('quantum-stats', 'children')],
             [Input('interval-component', 'n_intervals')]
         )
         def update_dashboard(n):
@@ -169,20 +134,40 @@ class MonitoringDashboard:
             # Update alerts
             alerts_div = self._create_alerts_div()
 
-            # Update pattern space
+            # Get current pattern with quantum metrics
+            current_pattern = None
+            current_quantum_metrics = None
             if self.pattern_history:
-                pattern_space = self.visualizer.create_3d_pattern_plot(
-                    np.vstack(self.pattern_history[-1]),
-                    title="Current Neural Pattern Space"
-                )
-            else:
-                pattern_space = go.Figure()
+                current_pattern = np.vstack(self.pattern_history[-1])
+                if self.current_network_state.activation_patterns:
+                    first_pattern = next(iter(self.current_network_state.activation_patterns.values()))
+                    if first_pattern.quantum_metrics:
+                        current_quantum_metrics = first_pattern.quantum_metrics
+
+            # Update pattern space with quantum visualization
+            pattern_space = self.visualizer.create_3d_pattern_plot(
+                current_pattern,
+                quantum_metrics=current_quantum_metrics,
+                title="Current Neural Pattern Space"
+            ) if current_pattern is not None else go.Figure()
+
+            # Update quantum state analysis
+            quantum_analysis = self.visualizer.create_quantum_state_plot(
+                current_quantum_metrics,
+                title="Quantum State Analysis"
+            ) if current_quantum_metrics else go.Figure()
 
             # Update metrics timeline
             metrics_timeline = self.visualizer.create_time_series_dashboard(
                 self.metrics_history,
                 self.timestamps
             )
+
+            # Update quantum transitions
+            quantum_transitions = self.visualizer.create_quantum_transition_matrix(
+                self.current_safety_status.quantum_transition_matrix,
+                title="Quantum State Transitions"
+            ) if self.current_safety_status.quantum_transition_matrix is not None else go.Figure()
 
             # Update stability heatmap
             stability_matrix = self._calculate_stability_matrix()
@@ -191,8 +176,29 @@ class MonitoringDashboard:
                 list(self.current_network_state.activation_patterns.keys())
             )
 
+            # Create quantum stats display
+            quantum_stats = None
+            if self.current_safety_status.quantum_state_counts:
+                counts = self.current_safety_status.quantum_state_counts
+                quantum_stats = html.Div([
+                    html.Table([
+                        html.Tr([html.Th("State"), html.Th("Count"), html.Th("Percentage")]),
+                        *[
+                            html.Tr([
+                                html.Td(state),
+                                html.Td(f"{info['count']}"),
+                                html.Td(f"{info['percentage']:.1f}%")
+                            ])
+                            for state, info in counts.items()
+                        ]
+                    ], style={'width': '100%', 'textAlign': 'center'})
+                ])
+            else:
+                quantum_stats = html.Div("No quantum state data available")
+
             return (risk_gauge, status_div, alerts_div,
-                   pattern_space, metrics_timeline, stability_heatmap)
+                   pattern_space, quantum_analysis, metrics_timeline,
+                   quantum_transitions, stability_heatmap, quantum_stats)
 
     def _generate_empty_plots(self):
         """Generate empty placeholder plots"""
@@ -212,7 +218,8 @@ class MonitoringDashboard:
         empty_div = html.Div("No data available")
 
         return (empty_fig, empty_div, empty_div,
-                empty_fig, empty_fig, empty_fig)
+                empty_fig, empty_fig, empty_fig, empty_fig,
+                empty_fig, empty_div)
 
     def _create_status_div(self) -> html.Div:
         """Create system status display"""
@@ -295,4 +302,4 @@ class MonitoringDashboard:
 
     def run_server(self, debug: bool = True, port: int = 8050):
         """Run the dashboard server"""
-        self.app.run_server(debug=debug, port=port)
+        self.app.run(debug=debug, port=port)

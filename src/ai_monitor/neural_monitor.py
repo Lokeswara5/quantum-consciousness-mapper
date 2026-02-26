@@ -1,8 +1,10 @@
 import numpy as np
 import torch
+import time
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from ..core.hyperdimensional_analyzer import HyperDimensionalAnalyzer, HyperDimensionalState
+from ..core.quantum_state_detector import QuantumStateDetector, QuantumStateMetrics
 
 @dataclass
 class NeuralActivityPattern:
@@ -13,6 +15,7 @@ class NeuralActivityPattern:
     stability: float
     emergence_score: float
     potential_issues: List[str]
+    quantum_metrics: Optional[QuantumStateMetrics] = None
 
 @dataclass
 class NetworkState:
@@ -29,11 +32,14 @@ class NeuralNetworkMonitor:
     def __init__(self,
                  stability_threshold: float = 0.7,
                  complexity_threshold: float = 0.8,
-                 emergence_threshold: float = 0.6):
+                 emergence_threshold: float = 0.6,
+                 coherence_threshold: float = 0.8):
         self.analyzer = HyperDimensionalAnalyzer(dimensions=3)
+        self.quantum_detector = QuantumStateDetector()
         self.stability_threshold = stability_threshold
         self.complexity_threshold = complexity_threshold
         self.emergence_threshold = emergence_threshold
+        self.coherence_threshold = coherence_threshold
         self.state_history: List[NetworkState] = []
 
     def get_layer_state(self, layer: torch.nn.Module) -> np.ndarray:
@@ -66,16 +72,30 @@ class NeuralNetworkMonitor:
         else:
             velocity = np.zeros_like(state)
 
-        # Detect patterns using quantum mapper
+        # Reshape state for pattern analysis
+        coordinates = state.reshape(-1, 3)
+        reshaped_velocity = velocity.reshape(-1, 3)
+
+        # Detect emergent patterns using hyperdimensional analyzer
         patterns = self.analyzer._analyze_emergent_patterns(
-            coordinates=state.reshape(-1, 3),
-            velocity=velocity.reshape(-1, 3)
+            coordinates=coordinates,
+            velocity=reshaped_velocity
+        )
+
+        # Detect quantum states
+        quantum_metrics = self.quantum_detector.detect_state_type(
+            coordinates=coordinates,
+            velocities=reshaped_velocity
         )
 
         # Calculate pattern metrics
         complexity = np.mean([p.complexity for p in patterns]) if patterns else 0.0
         stability = np.mean([p.stability for p in patterns]) if patterns else 0.0
         emergence_score = len(patterns) * np.mean([p.influence_radius for p in patterns]) if patterns else 0.0
+
+        # Adjust stability based on quantum coherence
+        if quantum_metrics.coherence_score > 0:
+            stability = 0.7 * stability + 0.3 * quantum_metrics.coherence_score
 
         # Check for potential issues
         issues = []
@@ -86,13 +106,20 @@ class NeuralNetworkMonitor:
         if emergence_score > self.emergence_threshold:
             issues.append(f"Strong emergence in {layer_name}: {emergence_score:.3f}")
 
+        # Add quantum-specific issues
+        if quantum_metrics.coherence_score < self.coherence_threshold:
+            issues.append(f"Low quantum coherence in {layer_name}: {quantum_metrics.coherence_score:.3f}")
+        if quantum_metrics.state_type in ["GHZ", "W"] and quantum_metrics.confidence < 0.7:
+            issues.append(f"Unstable {quantum_metrics.state_type} state in {layer_name}: {quantum_metrics.confidence:.3f}")
+
         return NeuralActivityPattern(
             layer_name=layer_name,
             activation_pattern=state,
             complexity=complexity,
             stability=stability,
             emergence_score=emergence_score,
-            potential_issues=issues
+            potential_issues=issues,
+            quantum_metrics=quantum_metrics
         )
 
     def monitor_network(self, model: torch.nn.Module) -> NetworkState:
@@ -122,7 +149,7 @@ class NeuralNetworkMonitor:
             activation_patterns=activation_patterns,
             global_stability=global_stability,
             warning_signals=all_issues,
-            timestamp=float(torch.cuda.Event().elapsed_time(torch.cuda.Event()))
+            timestamp=time.time()
         )
 
         # Update history
@@ -192,4 +219,38 @@ class NeuralNetworkMonitor:
                 f"Monitor {layer_name} for potential overfitting"
             )
 
+        # Add quantum-specific recommendations
+        if pattern.quantum_metrics:
+            metrics = pattern.quantum_metrics
+
+            # Handle low coherence
+            if metrics.coherence_score < self.coherence_threshold:
+                recommendations.append(
+                    f"Consider phase synchronization techniques for {layer_name}"
+                )
+
+            # Handle state-specific recommendations
+            if metrics.state_type == "GHZ" and metrics.confidence < 0.7:
+                recommendations.append(
+                    f"Strengthen global correlations in {layer_name} to stabilize GHZ state"
+                )
+            elif metrics.state_type == "W" and metrics.confidence < 0.7:
+                recommendations.append(
+                    f"Balance local correlations in {layer_name} to stabilize W state"
+                )
+
+            # Handle entanglement measures
+            if metrics.entanglement_measures.get("entropy", 0) < 0.3:
+                recommendations.append(
+                    f"Increase entanglement in {layer_name} through correlation enhancement"
+                )
+
         return recommendations
+
+    def get_quantum_state_statistics(self) -> Dict[str, Dict[str, float]]:
+        """Get statistics about quantum states across all layers."""
+        return self.quantum_detector.get_state_statistics()
+
+    def get_quantum_transition_matrix(self) -> np.ndarray:
+        """Get the quantum state transition matrix."""
+        return self.quantum_detector.get_transition_matrix()
