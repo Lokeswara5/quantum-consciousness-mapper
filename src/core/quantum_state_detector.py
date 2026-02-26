@@ -446,6 +446,7 @@ class QuantumStateDetector:
 
         # Convert to probabilities
         row_sums = transitions.sum(axis=1, keepdims=True)
-        transition_probs = np.divide(transitions, row_sums, where=row_sums != 0)
+        transition_probs = np.zeros_like(transitions)  # Pre-allocate output array
+        np.divide(transitions, row_sums, out=transition_probs, where=row_sums != 0)
 
         return transition_probs
